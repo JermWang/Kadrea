@@ -11,7 +11,7 @@
 
   /* Step-field scroll distance; shrinks on short screens so the field stays
      in the lower-left instead of running the full height. */
-  --travel: min(780px, calc(100vh - 178px));
+  --travel: min(780px, calc(100svh - 178px));
 
   --pink: #ff3cac;
   --violet: #a958ff;
@@ -597,6 +597,10 @@ button {
   border-color: rgba(169, 88, 255, 0.65);
 }
 
+.link-short {
+  display: none;
+}
+
 /* -------------------------------------------------------------- transport */
 
 .transport {
@@ -732,6 +736,12 @@ button {
   background: rgba(255, 255, 255, 0.1);
 }
 
+.seek::before {
+  position: absolute;
+  inset: -14px 0;
+  content: '';
+}
+
 .seek div {
   position: absolute;
   top: 0;
@@ -756,6 +766,10 @@ button {
   background: linear-gradient(to top, var(--pink), var(--cyan));
   opacity: 0.4;
   transform-origin: center;
+}
+
+.hint-touch {
+  display: none;
 }
 
 .hint {
@@ -1244,8 +1258,9 @@ button {
     display: none;
   }
 
+  /* Clear of the single-row topbar, which stands ~84px tall here. */
   .links {
-    top: 72px;
+    top: 96px;
     bottom: auto;
     flex-direction: row;
   }
@@ -1268,19 +1283,155 @@ button {
     display: none;
   }
 
+  /* The wordmark needs its own line here; sharing a row with the nav
+     squeezed its cell to 49px and let the type spill over the buttons. */
+  .topbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 12px;
+    padding: 14px 16px 8px;
+  }
+
+  .brand {
+    grid-row: 1;
+    grid-column: 1;
+  }
+
+  .beat-lock {
+    grid-row: 1;
+    grid-column: 2;
+  }
+
+  .nav {
+    grid-row: 2;
+    grid-column: 1 / -1;
+    justify-content: space-between;
+    gap: 0;
+  }
+
+  .nav button {
+    padding: 11px 4px;
+    font-size: 10px;
+  }
+
+  .bpm-readout {
+    font-size: 10px;
+  }
+
+  .links {
+    top: 102px;
+    right: 16px;
+    width: calc(100% - 32px);
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px;
+  }
+
+  .links a {
+    gap: 0;
+    padding: 11px 12px;
+    font-size: 8px;
+  }
+
+  .link-arrow,
+  .link-long {
+    display: none;
+  }
+
+  .link-short {
+    display: inline;
+  }
+
   .transport {
     bottom: 14px;
     width: calc(100% - 24px);
   }
 
+  .transport-bar {
+    gap: 10px;
+    padding: 10px 12px;
+  }
+
+  .skip {
+    width: 42px;
+    height: 42px;
+    font-size: 10px;
+  }
+
+  .play-key {
+    width: 52px;
+    height: 42px;
+    font-size: 14px;
+  }
+
+  .transport-title strong {
+    font-size: 14px;
+  }
+
+  .transport-title span {
+    font-size: 9px;
+  }
+
+  .hint {
+    font-size: 8px;
+  }
+
   .panel {
-    top: 76px;
-    bottom: 96px;
+    top: 100px;
+    bottom: 124px;
     width: calc(100% - 24px);
+    border-radius: 14px;
+  }
+
+  .panel-head {
+    padding: 13px 16px;
+  }
+
+  .music-grid,
+  .merch {
+    padding: 16px;
+  }
+
+  .stream-tabs button,
+  .stream-out {
+    padding: 13px 10px;
+    font-size: 9px;
+  }
+
+  .track {
+    padding: 15px 14px;
+  }
+
+  .panel-back {
+    padding: 12px 13px;
   }
 
   .start-row {
-    bottom: 122px;
+    bottom: 136px;
+  }
+}
+
+/* Touch: no keyboard to hint at, and every control needs a finger target. */
+@media (pointer: coarse) {
+  .hint-keys {
+    display: none;
+  }
+
+  .hint-touch {
+    display: inline;
+  }
+
+  .nav button {
+    min-height: 44px;
+  }
+
+  .links a {
+    min-height: 42px;
+  }
+
+  .panel-back,
+  .stream-tabs button,
+  .stream-out {
+    min-height: 44px;
   }
 }
 

@@ -1063,9 +1063,10 @@ export default function Home() {
             target="_blank"
             rel="noopener noreferrer"
             data-tint="pink"
+            aria-label="Kadrea on Spotify"
           >
             SPOTIFY
-            <span aria-hidden="true" style={{ color: '#ff8fd6' }}>
+            <span className="link-arrow" aria-hidden="true" style={{ color: '#ff8fd6' }}>
               ↗
             </span>
           </a>
@@ -1074,9 +1075,12 @@ export default function Home() {
             target="_blank"
             rel="noopener noreferrer"
             data-tint="cyan"
+            aria-label="Kadrea on Apple Music"
           >
-            APPLE MUSIC
-            <span aria-hidden="true" style={{ color: '#5cfaff' }}>
+            {/* The full name does not fit a phone row; the label carries it. */}
+            <span className="link-long">APPLE MUSIC</span>
+            <span className="link-short">APPLE</span>
+            <span className="link-arrow" aria-hidden="true" style={{ color: '#5cfaff' }}>
               ↗
             </span>
           </a>
@@ -1085,9 +1089,10 @@ export default function Home() {
             target="_blank"
             rel="noopener noreferrer"
             data-tint="violet"
+            aria-label="Kadrea on SoundCloud"
           >
             SOUNDCLOUD
-            <span aria-hidden="true" style={{ color: '#c9a4ff' }}>
+            <span className="link-arrow" aria-hidden="true" style={{ color: '#c9a4ff' }}>
               ↗
             </span>
           </a>
@@ -1153,7 +1158,10 @@ export default function Home() {
           </div>
 
           <p className="hint pixel">
-            SPACE PLAY · ARROWS ORBIT · R RESYNC · H HIDE HUD
+            <span className="hint-keys">
+              SPACE PLAY · ARROWS ORBIT · R RESYNC · H HIDE HUD
+            </span>
+            <span className="hint-touch">DRAG THE FLOOR TO ORBIT</span>
           </p>
         </div>
 

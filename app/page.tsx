@@ -529,17 +529,8 @@ export default function Home() {
       </header>
 
       <section className="hero" id="top">
-        <div className="hero-copy">
-          <p className="eyebrow">WELCOME TO THE AFTERIMAGE</p>
-          <h1>
-            ENTER THE
-            <br />
-            <span>DANCE FLOOR</span>
-          </h1>
-          <p className="lede">
-            Pick a platform. Press play. Kadrea takes it from here.
-          </p>
-        </div>
+        {/* The scene is the headline now; keep one for structure and readers. */}
+        <h1 className="sr-only">Kadrea — enter the dance floor</h1>
 
         <div className="stage-shell">
           <canvas
@@ -549,7 +540,6 @@ export default function Home() {
             aria-label="Interactive 3D model of Kadrea dancing on a lit stage. Drag it or use the arrow keys to orbit."
           />
           <div className="stage-halo" aria-hidden="true" />
-          <p className="stage-index">KDR / 001</p>
           <p className="stage-mode">DRAG TO ORBIT · ARROW KEYS TO STEER</p>
 
           <p

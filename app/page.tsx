@@ -39,16 +39,16 @@ const BALL_URL = '/models/discoball.glb';
 
 const STAGE_TOP = -1.63;
 const AVATAR_HEIGHT = 3.55;
-const AVATAR_TOP = STAGE_TOP + AVATAR_HEIGHT;
-const FRAME_PADDING = 0.55;
+/** Top of the shot: the disco ball's body, so it is actually in frame. */
+const FRAME_TOP = 3.35;
+const FRAME_PADDING = 1.2;
 const FRAME_WIDTH = 2.4;
-const FRAME_LIFT = 1.25;
 const FLOOR_WIDTH = 9.5;
 const RIM_RADIUS = 1.5;
-const BALL_WIDTH = 1.4;
-const BALL_HANG = 2.25;
-const BALL_DEPTH = -2.2;
-const BALL_OFFSET_X = -2.3;
+const BALL_WIDTH = 1;
+const BALL_HANG = 1.95;
+const BALL_DEPTH = -2;
+const BALL_OFFSET_X = -2;
 
 /** The borrowed floor ships a rainbow; retint it into Kadrea's palette. */
 const FLOOR_TINTS: Record<string, number> = {
@@ -82,8 +82,8 @@ const TITLES: Record<Screen, string> = {
 };
 
 const DEFAULT_BPM = 124;
-/** PS1 crunch: render below CSS resolution and let the canvas upscale hard. */
-const PIXELATION = 0.8;
+/** Cap the pixel ratio so a retina phone does not render four times the work. */
+const MAX_PIXEL_RATIO = 1.35;
 
 /** Lane x-offsets and the step pattern that scrolls up the field. */
 const LANE_X = [7, 61, 115, 169];
@@ -120,6 +120,9 @@ type Engine = {
   lastOnset: number;
   prevOnset: number;
   beatEpoch: number;
+  /** Where beat zero sits on the *track's* timeline, in seconds. */
+  audioOrigin: number;
+  audioAnchored: boolean;
   lastBeat: number;
   combo: number;
   held: Set<string>;
@@ -136,6 +139,7 @@ export default function Home() {
   const timeRef = useRef<HTMLSpanElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
   const seekRef = useRef<HTMLButtonElement>(null);
+  const deckRef = useRef<HTMLDivElement>(null);
   const barRefs = useRef<(HTMLElement | null)[]>([]);
 
   const engineRef = useRef<Engine>({
@@ -151,6 +155,8 @@ export default function Home() {
     lastOnset: 0,
     prevOnset: 0,
     beatEpoch: 0,
+    audioOrigin: 0,
+    audioAnchored: false,
     lastBeat: -1,
     combo: 0,
     held: new Set(),
@@ -256,6 +262,8 @@ export default function Home() {
         engine.intervals = [];
         engine.bassHist = [];
         engine.prevOnset = 0;
+        engine.audioOrigin = 0;
+        engine.audioAnchored = false;
       }
       if (engine.ctx?.state === 'suspended') void engine.ctx.resume();
       void audio.play().catch(() => setPlaying(false));
@@ -386,7 +394,7 @@ export default function Home() {
     let disposed = false;
     const calmQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
 
-    renderer.setPixelRatio(PIXELATION);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.12;
@@ -395,13 +403,13 @@ export default function Home() {
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x07040e);
-    scene.fog = new THREE.FogExp2(0x07040e, 0.058);
+    scene.fog = new THREE.FogExp2(0x07040e, 0.035);
 
     // The camera is locked ~13 units out, so a tight near/far pair buys the
     // depth precision the borrowed floor's stacked panels need to stop
     // z-fighting.
     const camera = new THREE.PerspectiveCamera(31, 1, 2, 34);
-    const focus = new THREE.Vector3(0, STAGE_TOP + AVATAR_HEIGHT / 2 - FRAME_LIFT, 0);
+    const focus = new THREE.Vector3(0, 0, 0);
 
     scene.add(new THREE.HemisphereLight(0x9f7bff, 0x190723, 2.15));
 
@@ -486,6 +494,9 @@ export default function Home() {
     let mixer: THREE.AnimationMixer | null = null;
     let floorMixer: THREE.AnimationMixer | null = null;
     let ballMixer: THREE.AnimationMixer | null = null;
+    let avatarAction: THREE.AnimationAction | null = null;
+    let ballRoot: THREE.Object3D | null = null;
+    let ballBaseX = 0;
 
     type Quantized = {
       action: THREE.AnimationAction;
@@ -500,19 +511,11 @@ export default function Home() {
       entry.action.timeScale = entry.clip.duration / (entry.beats * beatSec);
     };
 
-    /**
-     * Period lock alone still lets the loop sit on the wrong part of the bar.
-     * This pulls each clip's playhead toward where the beat clock says it
-     * should be — a gentle, continuous phase lock rather than a visible jump.
-     */
-    const phaseLock = (beatsElapsed: number) => {
+    /** Put every quantised clip exactly where the beat grid says it should be. */
+    const scrubToGrid = (beatsElapsed: number) => {
       for (const entry of quantized) {
-        const dur = entry.clip.duration;
-        const target = ((beatsElapsed % entry.beats) / entry.beats) * dur;
-        let diff = target - entry.action.time;
-        if (diff > dur / 2) diff -= dur;
-        else if (diff < -dur / 2) diff += dur;
-        if (Math.abs(diff) > 0.005) entry.action.time += diff * 0.09;
+        const local = ((beatsElapsed % entry.beats) + entry.beats) % entry.beats;
+        entry.action.time = (local / entry.beats) * entry.clip.duration;
       }
     };
 
@@ -536,8 +539,10 @@ export default function Home() {
         quantized.push(entry);
       }
       action.play();
+      lastAction = action;
       return created;
     };
+    let lastAction: THREE.AnimationAction | null = null;
 
     engine.retime = (beatSec: number) => {
       for (const entry of quantized) lockToGrid(entry, beatSec);
@@ -610,11 +615,15 @@ export default function Home() {
       ball.updateMatrixWorld(true);
       const fitted = new THREE.Box3().setFromObject(ball);
       const center = fitted.getCenter(new THREE.Vector3());
-      ball.position.x += BALL_OFFSET_X - center.x;
+      // Centre it on x, then let fitCamera decide how far out it can hang.
+      ball.position.x -= center.x;
       ball.position.z += BALL_DEPTH - center.z;
       ball.position.y += BALL_HANG - fitted.min.y;
+      ballBaseX = ball.position.x;
+      ballRoot = ball;
       scene.add(ball);
       ballMixer = playClip(ball, gltf.animations[0], false);
+      fitCamera(canvas.getBoundingClientRect());
     });
 
     loader.load(
@@ -649,6 +658,7 @@ export default function Home() {
         avatar.position.z -= center.z;
         avatarPivot.add(avatar);
         mixer = playClip(avatar, gltf.animations[0], true);
+        avatarAction = lastAction;
 
         // Box3.setFromObject reads a SkinnedMesh's *bind* pose, but she is
         // drawn in the clip's pose — centring on the bind box left her off the
@@ -681,24 +691,43 @@ export default function Home() {
 
     let distance = 13;
     let yaw = 0;
-    let pitch = 0.21;
+    let pitch = 0.16;
     let targetYaw = 0;
-    let targetPitch = 0.21;
-    let pointerX = 0;
-    let pointerY = 0;
+    let targetPitch = 0.16;
     let dragging = false;
     let lastX = 0;
     let lastY = 0;
-    let idleFor = 0;
 
-    const fitCamera = () => {
+    /**
+     * Frame the floor through to the top of the ball, then slide the aim point
+     * so her feet clear the deck. The deck covers a much bigger share of a
+     * short phone than of a desktop, so this is measured, not guessed.
+     */
+    const fitCamera = (rect: DOMRect) => {
       const halfFov = THREE.MathUtils.degToRad(camera.fov) / 2;
+      const deck = deckRef.current;
+      const covered = deck
+        ? Math.max(0, rect.bottom - deck.getBoundingClientRect().top)
+        : 150;
+      const share = Math.min(0.42, covered / rect.height);
+      // Where her feet should land in clip space: clear above the deck.
+      const feetTarget = Math.min(-0.12, -(1 - 2 * share) + 0.1);
       const reach =
-        Math.max(AVATAR_TOP - focus.y, focus.y - STAGE_TOP) + FRAME_PADDING;
+        (FRAME_TOP - STAGE_TOP + FRAME_PADDING) / (1 - feetTarget);
+      focus.y = STAGE_TOP - feetTarget * reach;
       distance = Math.max(
         reach / Math.tan(halfFov),
         FRAME_WIDTH / 2 / (Math.tan(halfFov) * Math.max(camera.aspect, 0.1)),
       );
+
+      // A portrait frame is far too narrow to hang the ball right out at the
+      // side, so pull it in until it fits rather than losing it off the edge.
+      if (ballRoot) {
+        const halfWidth = reach * Math.max(camera.aspect, 0.1);
+        const limit = Math.max(0.9, halfWidth * 0.92 - BALL_WIDTH / 2);
+        ballRoot.position.x =
+          ballBaseX - Math.min(Math.abs(BALL_OFFSET_X), limit);
+      }
     };
 
     const resize = () => {
@@ -706,29 +735,27 @@ export default function Home() {
       if (!rect.width || !rect.height) return;
       camera.aspect = rect.width / rect.height;
       camera.updateProjectionMatrix();
-      renderer.setPixelRatio(PIXELATION);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
       renderer.setSize(rect.width, rect.height, false);
-      fitCamera();
+      fitCamera(rect);
     };
     const observer = new ResizeObserver(resize);
     observer.observe(canvas);
+    if (deckRef.current) observer.observe(deckRef.current);
     resize();
 
+    // The view only moves when it is asked to — dragged or steered. Cursor
+    // parallax made the whole scene wander while you were reaching for a button.
     const onPointerMove = (event: PointerEvent) => {
-      if (dragging) {
-        targetYaw -= (event.clientX - lastX) * 0.006;
-        targetPitch = THREE.MathUtils.clamp(
-          targetPitch + (event.clientY - lastY) * 0.004,
-          -0.3,
-          0.55,
-        );
-        lastX = event.clientX;
-        lastY = event.clientY;
-        idleFor = 0;
-        return;
-      }
-      pointerX = event.clientX / window.innerWidth - 0.5;
-      pointerY = event.clientY / window.innerHeight - 0.5;
+      if (!dragging) return;
+      targetYaw -= (event.clientX - lastX) * 0.006;
+      targetPitch = THREE.MathUtils.clamp(
+        targetPitch + (event.clientY - lastY) * 0.004,
+        -0.3,
+        0.55,
+      );
+      lastX = event.clientX;
+      lastY = event.clientY;
     };
     const onPointerDown = (event: PointerEvent) => {
       dragging = true;
@@ -824,8 +851,22 @@ export default function Home() {
           }
         }
       }
-      // Nudge the grid onto the hit only when it has genuinely drifted.
       const beatSec = 60 / (engine.detectedBpm || DEFAULT_BPM);
+
+      // Anchor beat zero to this hit on the track's timeline, so the dance
+      // survives a dropped frame or a seek. Only re-anchor on real drift.
+      const audio = engine.audio;
+      if (audio) {
+        const at = audio.currentTime;
+        const drift =
+          (((at - engine.audioOrigin) / beatSec) % 1 + 1) % 1;
+        if (!engine.audioAnchored || Math.min(drift, 1 - drift) > 0.16) {
+          engine.audioOrigin = at;
+          engine.audioAnchored = true;
+        }
+      }
+
+      // Nudge the CSS grid onto the hit only when it has genuinely drifted.
       const phase = (((now - engine.beatEpoch) / 1000 / beatSec) % 1 + 1) % 1;
       if (Math.min(phase, 1 - phase) > 0.16) resync();
     };
@@ -846,8 +887,14 @@ export default function Home() {
 
       readAudio(frameNow);
 
+      const audio = engine.audio;
+      const live = Boolean(engine.analyser && audio && !audio.paused);
       const beatSec = 60 / (engine.detectedBpm || DEFAULT_BPM);
-      const beats = (frameNow - engine.beatEpoch) / 1000 / beatSec;
+      // While a track plays the grid comes from the audio's own clock, so a
+      // stutter, a tab switch or a seek can never slide the dance off the beat.
+      const beats = live
+        ? (audio!.currentTime - engine.audioOrigin) / beatSec
+        : (frameNow - engine.beatEpoch) / 1000 / beatSec;
       const whole = Math.floor(beats);
       const phase = beats - whole;
       if (whole !== engine.lastBeat) {
@@ -866,8 +913,6 @@ export default function Home() {
         (keys.has('ArrowLeft') ? 1 : 0) - (keys.has('ArrowRight') ? 1 : 0);
       const pitchInput =
         (keys.has('ArrowUp') ? 1 : 0) - (keys.has('ArrowDown') ? 1 : 0);
-      if (yawInput || pitchInput) idleFor = 0;
-      else idleFor += delta;
       targetYaw += yawInput * delta * 1.5;
       targetPitch = THREE.MathUtils.clamp(
         targetPitch + pitchInput * delta * 0.7,
@@ -875,19 +920,12 @@ export default function Home() {
         0.55,
       );
 
-      // Attract mode: after six idle seconds the cabinet drifts on its own.
-      if (!calm && idleFor > 6) targetYaw += delta * 0.055;
-
       const ease = Math.min(1, delta * 6);
       yaw += (targetYaw - yaw) * ease;
       pitch += (targetPitch - pitch) * ease;
 
-      const camYaw = yaw + (calm ? 0 : pointerX * 0.3);
-      const camPitch = THREE.MathUtils.clamp(
-        pitch - (calm ? 0 : pointerY * 0.14),
-        -0.35,
-        0.6,
-      );
+      const camYaw = yaw;
+      const camPitch = THREE.MathUtils.clamp(pitch, -0.35, 0.6);
       const cosPitch = Math.cos(camPitch);
       // Snap the camera to a coarse lattice — the PS1 vertex judder, cheaply.
       const snap = 96;
@@ -899,24 +937,35 @@ export default function Home() {
       camera.lookAt(focus);
 
       if (!calm) {
-        mixer?.update(delta);
         ballMixer?.update(delta);
-        floorMixer?.update(delta);
-        phaseLock(beats);
+
+        if (live) {
+          // Her feet land on the beat because the playhead is the beat.
+          scrubToGrid(beats);
+          mixer?.update(0);
+          floorMixer?.update(0);
+        } else {
+          // Nothing playing: she waits on the opening pose and just breathes,
+          // while the floor keeps ticking over underneath her.
+          if (avatarAction) avatarAction.time = 0;
+          mixer?.update(0);
+          floorMixer?.update(delta);
+        }
 
         elapsed += delta;
         stars.rotation.y = elapsed * 0.018;
-        avatarPivot.rotation.y = Math.sin(elapsed * 0.55) * 0.055;
+        avatarPivot.rotation.y = Math.sin(elapsed * 0.55) * (live ? 0.055 : 0.02);
 
         // Driven by the track when it is playing, by the beat grid when not.
-        const live = Boolean(engine.analyser && engine.audio && !engine.audio.paused);
         const swell = live ? engine.energy * 2 - 0.35 : Math.cos(phase * Math.PI * 2);
         const hit = live ? engine.punch : Math.max(0, 1 - phase * 3);
         pinkLight.intensity = 26 + swell * 16;
         cyanLight.intensity = 24 - swell * 12;
         violetLight.intensity = 14 + hit * 22;
         rimMat.color.setHex(whole % 2 === 0 ? 0xff3cac : 0x5cfaff);
-        avatarPivot.position.y = hit * 0.045;
+        avatarPivot.position.y = live
+          ? hit * 0.045
+          : Math.sin(elapsed * 0.9) * 0.012;
         key.intensity = 4.7 + hit * 1.6;
 
         for (let i = 0; i < pulseRings.length; i += 1) {
@@ -1116,7 +1165,7 @@ export default function Home() {
           </a>
         </div>
 
-        <div className="transport">
+        <div className="transport" ref={deckRef}>
           <div className="transport-bar">
             <div className="transport-keys">
               <button

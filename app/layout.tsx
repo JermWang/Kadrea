@@ -1,22 +1,25 @@
 import type { Metadata, Viewport } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
+import { Chakra_Petch, Press_Start_2P } from 'next/font/google';
 import './globals.css';
 
-const geistSans = Geist({
-  variable: '--font-geist-sans',
+const bodyFont = Chakra_Petch({
+  variable: '--font-body',
   subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+  style: ['normal', 'italic'],
   display: 'swap',
 });
 
-const geistMono = Geist_Mono({
-  variable: '--font-geist-mono',
+const arcadeFont = Press_Start_2P({
+  variable: '--font-arcade',
   subsets: ['latin'],
+  weight: '400',
   display: 'swap',
 });
 
 const title = 'KADREA — Enter the Dance Floor';
 const description =
-  'Enter Kadrea’s interactive 3D dance floor and listen on Spotify or Apple Music.';
+  'Kadrea’s interactive arcade dance floor: a 3D avatar that re-times her dance to whichever of her tracks is playing.';
 
 /**
  * Social images need absolute URLs. Vercel supplies the deployment host at
@@ -61,7 +64,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable}`}>
+      <body className={`${bodyFont.variable} ${arcadeFont.variable}`}>
         {children}
       </body>
     </html>

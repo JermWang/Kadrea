@@ -18,13 +18,51 @@ type PlatformName = (typeof PLATFORMS)[number]['name'];
 
 /** Web export of the Meshy biped: 24 bones, textured, `All_Night_Dance` loop. */
 const MODEL_URL = '/models/kadrea-meshy-web.glb';
-/** Where the avatar's feet land — the lit rim of the podium. */
+/** Borrowed club set pieces, both carrying their own animation clip. */
+const FLOOR_URL = '/models/dancefloor.glb';
+const BALL_URL = '/models/discoball.glb';
+/** Where the avatar's feet land — the surface of the dance floor. */
 const STAGE_TOP = -1.63;
 const AVATAR_HEIGHT = 3.55;
 /** Breathing room the camera keeps around the avatar, in world units. */
 const FRAME_PADDING = 0.25;
 const FRAME_WIDTH = 2.6;
 const FOCUS = new THREE.Vector3(0, STAGE_TOP + AVATAR_HEIGHT / 2, 0);
+
+/**
+ * Source floor is a 24-unit square club floor. Wide enough here that its far
+ * edge dissolves into the fog instead of showing a hard rim mid-frame.
+ */
+const FLOOR_WIDTH = 14;
+/** Radius of Kadrea's lit ring — kept inside the frame at the default camera. */
+const RIM_RADIUS = 1.15;
+
+const BALL_WIDTH = 0.9;
+/**
+ * Kadrea's head reaches STAGE_TOP + AVATAR_HEIGHT ≈ 1.92. The ball hangs above
+ * that, set back and off to one side so it never reads as a halo behind her.
+ */
+const BALL_HANG = 2;
+const BALL_DEPTH = -2.2;
+const BALL_OFFSET_X = -1.55;
+
+/**
+ * The borrowed floor ships a rainbow of panel colours. Retint them into
+ * Kadrea's pink/violet/cyan palette, keyed by the source material names.
+ */
+const FLOOR_TINTS: Record<string, number> = {
+  Red: 0xff3cac,
+  Yellow: 0xff5cc0,
+  Green: 0x5cfaff,
+  Blue: 0x4bd8ff,
+  Cyan: 0x5cfaff,
+  Purple: 0xa958ff,
+  'pattern-cyan': 0x5cfaff,
+  'pattern-purple': 0xa958ff,
+  'Blue-img': 0x4bd8ff,
+  'wall-emit': 0xa958ff,
+  base: 0x171020,
+};
 
 const ARROW_KEYS = ['ArrowLeft', 'ArrowUp', 'ArrowDown', 'ArrowRight'] as const;
 type ArrowKey = (typeof ARROW_KEYS)[number];
@@ -115,39 +153,15 @@ export default function Home() {
     pinkLight.position.set(2.5, 0.2, 2.3);
     scene.add(pinkLight);
 
-    const stage = new THREE.Mesh(
-      new THREE.CylinderGeometry(1.65, 1.85, 0.16, 32),
-      new THREE.MeshStandardMaterial({
-        color: 0x171020,
-        metalness: 0.72,
-        roughness: 0.3,
-      }),
-    );
-    stage.position.y = STAGE_TOP - 0.09;
-    stage.receiveShadow = true;
-    scene.add(stage);
-
+    // Kadrea's signature: a lit ring marking her spot on the borrowed floor.
     const stageRimMaterial = new THREE.MeshBasicMaterial({ color: 0xff3cac });
     const stageRim = new THREE.Mesh(
-      new THREE.TorusGeometry(1.74, 0.025, 8, 48),
+      new THREE.TorusGeometry(RIM_RADIUS, 0.025, 8, 48),
       stageRimMaterial,
     );
     stageRim.rotation.x = Math.PI / 2;
-    stageRim.position.y = STAGE_TOP;
+    stageRim.position.y = STAGE_TOP + 0.012;
     scene.add(stageRim);
-
-    const discoBall = new THREE.Mesh(
-      new THREE.IcosahedronGeometry(0.26, 3),
-      new THREE.MeshStandardMaterial({
-        color: 0xd8e2ff,
-        emissive: 0x241346,
-        metalness: 1,
-        roughness: 0.12,
-        flatShading: true,
-      }),
-    );
-    discoBall.position.set(0, 2.05, 0);
-    scene.add(discoBall);
 
     const starGeometry = new THREE.BufferGeometry();
     const starPositions = new Float32Array(360);
@@ -176,9 +190,84 @@ export default function Home() {
     const avatarPivot = new THREE.Group();
     scene.add(avatarPivot);
 
+    const loader = new GLTFLoader();
     let mixer: THREE.AnimationMixer | null = null;
+    let floorMixer: THREE.AnimationMixer | null = null;
+    let ballMixer: THREE.AnimationMixer | null = null;
 
-    new GLTFLoader().load(
+    /** Start a GLB's own clip on its own mixer, looping forever. */
+    const playClip = (root: THREE.Object3D, clip?: THREE.AnimationClip) => {
+      if (!clip) return null;
+      const created = new THREE.AnimationMixer(root);
+      const action = created.clipAction(clip);
+      action.setLoop(THREE.LoopRepeat, Number.POSITIVE_INFINITY);
+      action.play();
+      return created;
+    };
+
+    // The dance floor, borrowed and retinted into Kadrea's palette.
+    loader.load(FLOOR_URL, (gltf) => {
+      if (disposed) return;
+      const floor = gltf.scene;
+
+      floor.traverse((object) => {
+        if (!(object instanceof THREE.Mesh)) return;
+        object.receiveShadow = true;
+        const materials = Array.isArray(object.material)
+          ? object.material
+          : [object.material];
+        for (const material of materials) {
+          const tint = FLOOR_TINTS[material.name];
+          if (tint === undefined) continue;
+          const standard = material as THREE.MeshStandardMaterial;
+          standard.color?.setHex(tint);
+          // Only retint panels that were already built to glow.
+          if (standard.emissive && standard.emissive.getHex() !== 0x000000) {
+            standard.emissive.setHex(tint);
+          }
+        }
+      });
+
+      const size = new THREE.Box3()
+        .setFromObject(floor)
+        .getSize(new THREE.Vector3());
+      floor.scale.setScalar(FLOOR_WIDTH / Math.max(size.x, size.z));
+      floor.updateMatrixWorld(true);
+
+      // Drop it so its top face is exactly where Kadrea stands.
+      const fitted = new THREE.Box3().setFromObject(floor);
+      const center = fitted.getCenter(new THREE.Vector3());
+      floor.position.x -= center.x;
+      floor.position.z -= center.z;
+      floor.position.y += STAGE_TOP - fitted.max.y;
+
+      scene.add(floor);
+      floorMixer = playClip(floor, gltf.animations[0]);
+    });
+
+    // The disco ball, hung above the floor on its own motor.
+    loader.load(BALL_URL, (gltf) => {
+      if (disposed) return;
+      const ball = gltf.scene;
+
+      const size = new THREE.Box3()
+        .setFromObject(ball)
+        .getSize(new THREE.Vector3());
+      ball.scale.setScalar(BALL_WIDTH / Math.max(size.x, size.z));
+      ball.updateMatrixWorld(true);
+
+      // Anchor by the underside so the mount runs off the top of frame.
+      const fitted = new THREE.Box3().setFromObject(ball);
+      const center = fitted.getCenter(new THREE.Vector3());
+      ball.position.x += BALL_OFFSET_X - center.x;
+      ball.position.z += BALL_DEPTH - center.z;
+      ball.position.y += BALL_HANG - fitted.min.y;
+
+      scene.add(ball);
+      ballMixer = playClip(ball, gltf.animations[0]);
+    });
+
+    loader.load(
       MODEL_URL,
       (gltf) => {
         if (disposed) return;
@@ -216,14 +305,7 @@ export default function Home() {
         avatar.position.z -= center.z;
         avatarPivot.add(avatar);
 
-        const clip = gltf.animations[0];
-        if (clip) {
-          mixer = new THREE.AnimationMixer(avatar);
-          const action = mixer.clipAction(clip);
-          action.setLoop(THREE.LoopRepeat, Number.POSITIVE_INFINITY);
-          action.play();
-        }
-
+        mixer = playClip(avatar, gltf.animations[0]);
         setStatus('ready');
       },
       undefined,
@@ -375,8 +457,11 @@ export default function Home() {
 
       // Reduced motion still allows deliberate steering, just no idle drift.
       if (!calm) {
+        // The ball just turns; the floor panels lift with the beat.
+        ballMixer?.update(delta);
+        floorMixer?.update(delta * (isPlaying ? 1 : 0.35));
+
         elapsed += delta;
-        discoBall.rotation.y = elapsed * 0.32;
         stars.rotation.y = elapsed * 0.018;
         avatarPivot.rotation.y = Math.sin(elapsed * 0.55) * 0.055;
         // While the clip runs it carries its own motion; only idle needs a float.
@@ -400,6 +485,8 @@ export default function Home() {
       renderer.setAnimationLoop(null);
       timer.disconnect();
       mixer?.stopAllAction();
+      floorMixer?.stopAllAction();
+      ballMixer?.stopAllAction();
       observer.disconnect();
       window.removeEventListener('pointermove', onPointerMove);
       canvas.removeEventListener('pointerdown', onPointerDown);

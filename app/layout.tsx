@@ -18,7 +18,18 @@ const title = 'KADREA — Enter the Dance Floor';
 const description =
   'Enter Kadrea’s interactive 3D dance floor and listen across Spotify, Apple Music, and SoundCloud.';
 
+/**
+ * Social images need absolute URLs. Vercel supplies the deployment host at
+ * build time; set NEXT_PUBLIC_SITE_URL once Kadrea has a custom domain.
+ */
+const siteUrl =
+  process.env.NEXT_PUBLIC_SITE_URL ??
+  (process.env.VERCEL_PROJECT_PRODUCTION_URL
+    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+    : 'http://localhost:3000');
+
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
   title,
   description,
   applicationName: 'Kadrea',

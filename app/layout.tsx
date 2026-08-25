@@ -1,19 +1,16 @@
 import type { Metadata, Viewport } from 'next';
-import { Chakra_Petch, Press_Start_2P } from 'next/font/google';
+import { Geist, Geist_Mono } from 'next/font/google';
 import './globals.css';
 
-const bodyFont = Chakra_Petch({
-  variable: '--font-body',
+const sans = Geist({
+  variable: '--font-sans',
   subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
-  style: ['normal', 'italic'],
   display: 'swap',
 });
 
-const arcadeFont = Press_Start_2P({
-  variable: '--font-arcade',
+const mono = Geist_Mono({
+  variable: '--font-mono',
   subsets: ['latin'],
-  weight: '400',
   display: 'swap',
 });
 
@@ -64,7 +61,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${bodyFont.variable} ${arcadeFont.variable}`}>
+      <body className={`${sans.variable} ${mono.variable}`}>
         {children}
       </body>
     </html>

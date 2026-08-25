@@ -649,6 +649,26 @@ export default function Home() {
         avatar.position.z -= center.z;
         avatarPivot.add(avatar);
         mixer = playClip(avatar, gltf.animations[0], true);
+
+        // Box3.setFromObject reads a SkinnedMesh's *bind* pose, but she is
+        // drawn in the clip's pose — centring on the bind box left her off the
+        // ring. Re-fit from the actual skinned silhouette at the first frame.
+        mixer?.update(0);
+        avatar.updateMatrixWorld(true);
+        const posed = new THREE.Box3();
+        avatar.traverse((object) => {
+          if (!(object instanceof THREE.SkinnedMesh)) return;
+          object.computeBoundingBox();
+          if (!object.boundingBox) return;
+          posed.union(object.boundingBox.clone().applyMatrix4(object.matrixWorld));
+        });
+        if (!posed.isEmpty()) {
+          const posedCenter = posed.getCenter(new THREE.Vector3());
+          avatar.position.x -= posedCenter.x;
+          avatar.position.z -= posedCenter.z;
+          avatar.position.y += STAGE_TOP - posed.min.y;
+        }
+
         setStatus('');
         resync();
       },
@@ -957,8 +977,6 @@ export default function Home() {
       />
 
       <div className="flare" aria-hidden="true" />
-      <div className="scanlines" aria-hidden="true" />
-      <div className="dither" aria-hidden="true" />
       <div className="vignette" aria-hidden="true" />
       <div className="grain" aria-hidden="true" />
 
@@ -971,10 +989,10 @@ export default function Home() {
                 ★
               </span>
             </div>
-            <p className="brand-line pixel">MUSIC IN MOTION · CHICAGO</p>
+            <p className="brand-line mono">MUSIC IN MOTION · CHICAGO</p>
           </div>
 
-          <nav className="nav pixel">
+          <nav className="nav mono">
             {SCREENS.map((name) => (
               <button
                 key={name}
@@ -988,7 +1006,7 @@ export default function Home() {
             ))}
           </nav>
 
-          <div className="beat-lock pixel">
+          <div className="beat-lock mono">
             <i aria-hidden="true" />
             <span className="bpm-readout" ref={bpmRef}>
               {DEFAULT_BPM} BPM
@@ -1034,14 +1052,14 @@ export default function Home() {
             PERFECT
           </p>
           <div className="combo-row">
-            <span className="combo pixel" ref={comboRef}>
+            <span className="combo mono" ref={comboRef}>
               0
             </span>
-            <small className="pixel">COMBO</small>
+            <small className="mono">COMBO</small>
           </div>
         </div>
 
-        <p className="model-status pixel" role="status" ref={statusRef}>
+        <p className="model-status mono" role="status" ref={statusRef}>
           SUMMONING KADREA…
         </p>
 
@@ -1049,7 +1067,7 @@ export default function Home() {
           <div className="start-row">
             <button
               type="button"
-              className="start-button pixel"
+              className="start-button mono"
               onClick={() => play(track)}
             >
               <span aria-hidden="true">▶</span>PRESS START
@@ -1057,7 +1075,7 @@ export default function Home() {
           </div>
         )}
 
-        <div className="links pixel">
+        <div className="links mono">
           <a
             href={PLATFORMS.spotify.href}
             target="_blank"
@@ -1128,9 +1146,10 @@ export default function Home() {
             </div>
 
             <div className="transport-now">
+              <p className="now-label mono">NOW PLAYING</p>
               <div className="transport-title">
                 <strong>{TRACKS[track].title}</strong>
-                <span className="pixel" ref={timeRef}>
+                <span className="mono" ref={timeRef}>
                   0:00
                 </span>
               </div>
@@ -1145,6 +1164,30 @@ export default function Home() {
               </button>
             </div>
 
+            <div className="platforms mono" role="group" aria-label="Streaming platform">
+              {(Object.keys(PLATFORMS) as PlatformKey[]).map((name) => (
+                <button
+                  key={name}
+                  type="button"
+                  className={platform === name ? 'is-active' : undefined}
+                  onClick={() => setPlatform(name)}
+                  aria-pressed={platform === name}
+                >
+                  {PLATFORMS[name].label}
+                </button>
+              ))}
+            </div>
+
+            <a
+              className="deck-cta mono"
+              href={activePlatform.href}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              LISTEN<span aria-hidden="true"> ↗</span>
+              <span className="sr-only"> on {activePlatform.label}</span>
+            </a>
+
             <div className="spectrum" aria-hidden="true">
               {Array.from({ length: 16 }, (_, index) => (
                 <i
@@ -1157,7 +1200,7 @@ export default function Home() {
             </div>
           </div>
 
-          <p className="hint pixel">
+          <p className="hint mono">
             <span className="hint-keys">
               SPACE PLAY · ARROWS ORBIT · R RESYNC · H HIDE HUD
             </span>
@@ -1179,7 +1222,7 @@ export default function Home() {
                 <h2>{TITLES[screen]}</h2>
                 <button
                   type="button"
-                  className="panel-back pixel"
+                  className="panel-back mono"
                   onClick={() => setScreen('floor')}
                 >
                   ESC · BACK
@@ -1197,7 +1240,7 @@ export default function Home() {
                           className={`track ${track === index ? 'is-current' : ''}`}
                           onClick={() => play(index)}
                         >
-                          <span className="track-index pixel">
+                          <span className="track-index mono">
                             {String(index + 1).padStart(2, '0')}
                           </span>
                           <span className="track-meta">
@@ -1216,12 +1259,12 @@ export default function Home() {
                             </span>
                           </span>
                           {track === index && (
-                            <span className="track-now pixel">NOW</span>
+                            <span className="track-now mono">NOW</span>
                           )}
                         </button>
                       ))}
 
-                      <p className="panel-note pixel">
+                      <p className="panel-note mono">
                         THE FLOOR LISTENS TO WHICHEVER TRACK IS PLAYING AND
                         RE-TIMES THE DANCE TO ITS TEMPO. THE STREAMING PLAYER TO
                         THE RIGHT IS SEPARATE.
@@ -1229,7 +1272,7 @@ export default function Home() {
                     </div>
 
                     <div className="stream">
-                      <div className="stream-tabs pixel">
+                      <div className="stream-tabs mono">
                         {(Object.keys(PLATFORMS) as PlatformKey[]).map((name) => (
                           <button
                             key={name}
@@ -1242,7 +1285,7 @@ export default function Home() {
                           </button>
                         ))}
                         <a
-                          className="stream-out pixel"
+                          className="stream-out mono"
                           href={activePlatform.href}
                           target="_blank"
                           rel="noopener noreferrer"
@@ -1267,17 +1310,17 @@ export default function Home() {
 
                 {screen === 'merch' && (
                   <div className="merch">
-                    <p className="panel-note pixel" style={{ margin: 0 }}>
+                    <p className="panel-note mono" style={{ margin: 0 }}>
                       DROP PRODUCT SHOTS INTO THE SLOTS — NAMES AND PRICES ARE
                       PLACEHOLDERS UNTIL YOU SEND ME THE REAL DROP.
                     </p>
                     <div className="merch-grid">
                       {MERCH.map((item) => (
                         <div key={item.name} className="merch-card">
-                          <div className="merch-slot pixel">{item.slot}</div>
+                          <div className="merch-slot mono">{item.slot}</div>
                           <div className="merch-line">
                             <strong>{item.name}</strong>
-                            <span className="pixel">$--</span>
+                            <span className="mono">$--</span>
                           </div>
                         </div>
                       ))}

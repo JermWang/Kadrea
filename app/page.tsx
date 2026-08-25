@@ -4,14 +4,19 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
-/**
- * Where the deck sends people. These are working search links so the player is
- * never a dead end — swap in Kadrea's canonical profile URLs once they exist.
- */
+/** Kadrea's real artist pages, each with its official embeddable player. */
 const PLATFORMS = [
-  { name: 'Spotify', href: 'https://open.spotify.com/search/Kadrea' },
-  { name: 'Apple Music', href: 'https://music.apple.com/us/search?term=Kadrea' },
-  { name: 'SoundCloud', href: 'https://soundcloud.com/search?q=Kadrea' },
+  {
+    name: 'Spotify',
+    href: 'https://open.spotify.com/artist/4d3pIB1vKTMYlfsHR7RrYx',
+    embed:
+      'https://open.spotify.com/embed/artist/4d3pIB1vKTMYlfsHR7RrYx?utm_source=generator&theme=0',
+  },
+  {
+    name: 'Apple Music',
+    href: 'https://music.apple.com/us/artist/kadrea/1655290325',
+    embed: 'https://embed.music.apple.com/us/artist/kadrea/1655290325',
+  },
 ] as const;
 
 type PlatformName = (typeof PLATFORMS)[number]['name'];
@@ -24,10 +29,22 @@ const BALL_URL = '/models/discoball.glb';
 /** Where the avatar's feet land — the surface of the dance floor. */
 const STAGE_TOP = -1.63;
 const AVATAR_HEIGHT = 3.55;
-/** Breathing room the camera keeps around the avatar, in world units. */
-const FRAME_PADDING = 0.25;
-const FRAME_WIDTH = 2.6;
-const FOCUS = new THREE.Vector3(0, STAGE_TOP + AVATAR_HEIGHT / 2, 0);
+const AVATAR_TOP = STAGE_TOP + AVATAR_HEIGHT;
+/** Breathing room the camera keeps above her head, in world units. */
+const FRAME_PADDING = 0.55;
+/** Enough width that she is never cropped on a narrow, portrait canvas. */
+const FRAME_WIDTH = 2.4;
+/**
+ * The deck sits over the bottom of the canvas, so the camera aims below her
+ * centre. That lifts her into the clear part of the frame without shrinking
+ * her or breaking the edge-to-edge scene.
+ */
+const FRAME_LIFT = 1.25;
+const FOCUS = new THREE.Vector3(
+  0,
+  STAGE_TOP + AVATAR_HEIGHT / 2 - FRAME_LIFT,
+  0,
+);
 
 /**
  * Source floor is a 24-unit square club floor. Wide enough here that its far
@@ -35,16 +52,16 @@ const FOCUS = new THREE.Vector3(0, STAGE_TOP + AVATAR_HEIGHT / 2, 0);
  */
 const FLOOR_WIDTH = 14;
 /** Radius of Kadrea's lit ring — kept inside the frame at the default camera. */
-const RIM_RADIUS = 1.15;
+const RIM_RADIUS = 1.5;
 
-const BALL_WIDTH = 0.9;
+const BALL_WIDTH = 1.4;
 /**
  * Kadrea's head reaches STAGE_TOP + AVATAR_HEIGHT ≈ 1.92. The ball hangs above
  * that, set back and off to one side so it never reads as a halo behind her.
  */
-const BALL_HANG = 2;
+const BALL_HANG = 2.25;
 const BALL_DEPTH = -2.2;
-const BALL_OFFSET_X = -1.55;
+const BALL_OFFSET_X = -2.3;
 
 /**
  * The borrowed floor ships a rainbow of panel colours. Retint them into
@@ -80,21 +97,14 @@ type Status = 'loading' | 'ready' | 'error';
 
 export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const playingRef = useRef(false);
   const heldRef = useRef<Set<ArrowKey>>(new Set());
 
   const [status, setStatus] = useState<Status>('loading');
-  const [playing, setPlaying] = useState(false);
   const [held, setHeld] = useState<ArrowKey[]>([]);
   const [platform, setPlatform] = useState<PlatformName>('Spotify');
 
   const activePlatform =
     PLATFORMS.find((entry) => entry.name === platform) ?? PLATFORMS[0];
-
-  // The render loop reads this ref, so toggling playback never rebuilds the scene.
-  useEffect(() => {
-    playingRef.current = playing;
-  }, [playing]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -126,8 +136,8 @@ export default function Home() {
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x07040e);
-    // Tuned against the camera distance below — thicker fog swallows the avatar.
-    scene.fog = new THREE.FogExp2(0x07040e, 0.065);
+    // Tuned against the camera distance below — thicker fog swallows her.
+    scene.fog = new THREE.FogExp2(0x07040e, 0.038);
 
     const camera = new THREE.PerspectiveCamera(31, 1, 0.1, 100);
 
@@ -330,7 +340,10 @@ export default function Home() {
     /** Pull back far enough that the whole dancer stays in frame at any aspect. */
     const fitCamera = () => {
       const halfFov = THREE.MathUtils.degToRad(camera.fov) / 2;
-      const forHeight = (AVATAR_HEIGHT / 2 + FRAME_PADDING) / Math.tan(halfFov);
+      // Measured from the aim point, which sits below her because of the lift.
+      const reach =
+        Math.max(AVATAR_TOP - FOCUS.y, FOCUS.y - STAGE_TOP) + FRAME_PADDING;
+      const forHeight = reach / Math.tan(halfFov);
       const forWidth =
         FRAME_WIDTH / 2 / (Math.tan(halfFov) * Math.max(camera.aspect, 0.1));
       distance = Math.max(forHeight, forWidth);
@@ -420,7 +433,6 @@ export default function Home() {
     renderer.setAnimationLoop(() => {
       timer.update();
       const delta = Math.min(timer.getDelta(), 0.05);
-      const isPlaying = playingRef.current;
       const calm = calmQuery.matches;
 
       const keys = heldRef.current;
@@ -453,28 +465,21 @@ export default function Home() {
       );
       camera.lookAt(FOCUS);
 
-      if (mixer && isPlaying) mixer.update(delta);
-
-      // Reduced motion still allows deliberate steering, just no idle drift.
+      // Reduced motion still allows deliberate steering, just no automatic
+      // movement — everything else runs continuously, because it is a club.
       if (!calm) {
-        // The ball just turns; the floor panels lift with the beat.
+        mixer?.update(delta);
         ballMixer?.update(delta);
-        floorMixer?.update(delta * (isPlaying ? 1 : 0.35));
+        floorMixer?.update(delta);
 
         elapsed += delta;
         stars.rotation.y = elapsed * 0.018;
         avatarPivot.rotation.y = Math.sin(elapsed * 0.55) * 0.055;
-        // While the clip runs it carries its own motion; only idle needs a float.
-        avatarPivot.position.y = isPlaying
-          ? 0
-          : Math.sin(elapsed * 0.8) * 0.012;
 
         const beat = Math.sin(elapsed * 6.8);
-        pinkLight.intensity = isPlaying ? 28 + beat * 8 : 23;
-        cyanLight.intensity = isPlaying ? 24 + Math.cos(elapsed * 6.8) * 7 : 20;
-        stageRimMaterial.color.setHex(
-          isPlaying && beat > 0 ? 0x5cfaff : 0xff3cac,
-        );
+        pinkLight.intensity = 28 + beat * 8;
+        cyanLight.intensity = 24 + Math.cos(elapsed * 6.8) * 7;
+        stageRimMaterial.color.setHex(beat > 0 ? 0x5cfaff : 0xff3cac);
       }
 
       renderer.render(scene, camera);
@@ -570,60 +575,62 @@ export default function Home() {
       </section>
 
       <section className="music-deck" aria-label="Kadrea music player">
-        <div className="now-playing">
-          <span className="track-number" aria-hidden="true">
-            01
-          </span>
-          <div>
-            <p>NOW ENTERING</p>
-            <strong>KADREA RADIO</strong>
+        <div className="deck-head">
+          <div className="now-playing">
+            <span className="track-number" aria-hidden="true">
+              01
+            </span>
+            <div>
+              <p>NOW ENTERING</p>
+              <strong>KADREA RADIO</strong>
+            </div>
+          </div>
+
+          <div className="platforms" role="group" aria-label="Streaming platform">
+            {PLATFORMS.map(({ name }) => (
+              <button
+                key={name}
+                type="button"
+                className={platform === name ? 'active' : undefined}
+                onClick={() => setPlatform(name)}
+                aria-pressed={platform === name}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+
+          <a
+            className="deck-cta"
+            href={activePlatform.href}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            LISTEN<span aria-hidden="true"> ↗</span>
+            <span className="sr-only"> on {platform}, opens in a new tab</span>
+          </a>
+
+          <div className="beat-meter" aria-hidden="true">
+            {BEAT_BARS.map((ratio, index) => (
+              <i
+                key={index}
+                style={
+                  { '--ratio': ratio, '--bar': index } as React.CSSProperties
+                }
+              />
+            ))}
           </div>
         </div>
 
-        <button
-          className={`play-button ${playing ? 'is-playing' : ''}`}
-          type="button"
-          onClick={() => setPlaying((value) => !value)}
-          aria-pressed={playing}
-          aria-label={playing ? 'Calm the dance floor' : 'Start the dance floor'}
-        >
-          <span aria-hidden="true">{playing ? 'Ⅱ' : '▶'}</span>
-        </button>
-
-        <div className="platforms" role="group" aria-label="Streaming platform">
-          {PLATFORMS.map(({ name }) => (
-            <button
-              key={name}
-              type="button"
-              className={platform === name ? 'active' : undefined}
-              onClick={() => setPlatform(name)}
-              aria-pressed={platform === name}
-            >
-              {name}
-            </button>
-          ))}
-        </div>
-
-        <a
-          className="deck-cta"
-          href={activePlatform.href}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          LISTEN<span aria-hidden="true"> ↗</span>
-          <span className="sr-only"> on {platform}, opens in a new tab</span>
-        </a>
-
-        <div className="beat-meter" aria-hidden="true">
-          {BEAT_BARS.map((ratio, index) => (
-            <i
-              key={index}
-              style={
-                { '--ratio': ratio, '--bar': index } as React.CSSProperties
-              }
-            />
-          ))}
-        </div>
+        {/* Keyed so switching platforms remounts, stopping the previous player. */}
+        <iframe
+          key={activePlatform.name}
+          className="deck-player"
+          src={activePlatform.embed}
+          title={`Listen to Kadrea on ${activePlatform.name}`}
+          loading="lazy"
+          allow="autoplay; encrypted-media; clipboard-write; fullscreen; picture-in-picture"
+        />
       </section>
     </main>
   );

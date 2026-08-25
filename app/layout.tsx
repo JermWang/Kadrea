@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 
 const title = 'KADREA — Enter the Dance Floor';
 const description =
-  'Enter Kadrea’s interactive 3D dance floor and listen across Spotify, Apple Music, and SoundCloud.';
+  'Enter Kadrea’s interactive 3D dance floor and listen on Spotify or Apple Music.';
 
 /**
  * Social images need absolute URLs. Vercel supplies the deployment host at

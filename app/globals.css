@@ -512,6 +512,21 @@ button {
   color: var(--ink);
 }
 
+/* Sized off the label so the mark and the type stay in proportion. */
+.link-mark {
+  flex: none;
+  font-size: 1.7em;
+  opacity: 0.85;
+}
+
+.links a:hover .link-mark {
+  opacity: 1;
+}
+
+.link-arrow {
+  color: var(--dim);
+}
+
 .links a[data-tint='pink']:hover {
   border-color: rgba(255, 60, 172, 0.5);
 }
@@ -1236,7 +1251,7 @@ button {
   }
 
   .links a {
-    gap: 0;
+    gap: 7px;
     padding: 12px 13px;
     font-size: 0.5rem;
   }
@@ -1322,6 +1337,23 @@ button {
 }
 
 /* Touch: no keyboard to hint at, and every control needs a finger target. */
+/* Too narrow for three labelled pills; the marks name the platforms alone. */
+@media (max-width: 359px) {
+  .link-name,
+  .link-long,
+  .link-short {
+    display: none;
+  }
+
+  .links a {
+    padding: 12px 15px;
+  }
+
+  .link-mark {
+    font-size: 2.1em;
+  }
+}
+
 @media (pointer: coarse) {
   .hint-keys {
     display: none;

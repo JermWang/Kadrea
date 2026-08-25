@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import {
+  AppleMusicIcon,
+  SoundCloudIcon,
+  SpotifyIcon,
+} from './platform-icons';
 
 /** Kadrea's streaming homes. The embeds live inside the MUSIC screen. */
 const PLATFORMS = {
@@ -1132,8 +1137,9 @@ export default function Home() {
             data-tint="pink"
             aria-label="Kadrea on Spotify"
           >
-            SPOTIFY
-            <span className="link-arrow" aria-hidden="true" style={{ color: '#ff8fd6' }}>
+            <SpotifyIcon className="link-mark" />
+            <span className="link-name">SPOTIFY</span>
+            <span className="link-arrow" aria-hidden="true">
               ↗
             </span>
           </a>
@@ -1144,10 +1150,11 @@ export default function Home() {
             data-tint="cyan"
             aria-label="Kadrea on Apple Music"
           >
+            <AppleMusicIcon className="link-mark" />
             {/* The full name does not fit a phone row; the label carries it. */}
             <span className="link-long">APPLE MUSIC</span>
             <span className="link-short">APPLE</span>
-            <span className="link-arrow" aria-hidden="true" style={{ color: '#5cfaff' }}>
+            <span className="link-arrow" aria-hidden="true">
               ↗
             </span>
           </a>
@@ -1158,8 +1165,9 @@ export default function Home() {
             data-tint="violet"
             aria-label="Kadrea on SoundCloud"
           >
-            SOUNDCLOUD
-            <span className="link-arrow" aria-hidden="true" style={{ color: '#c9a4ff' }}>
+            <SoundCloudIcon className="link-mark" />
+            <span className="link-name">SOUNDCLOUD</span>
+            <span className="link-arrow" aria-hidden="true">
               ↗
             </span>
           </a>

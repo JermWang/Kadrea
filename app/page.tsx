@@ -128,6 +128,9 @@ type Engine = {
   /** Where beat zero sits on the *track's* timeline, in seconds. */
   audioOrigin: number;
   audioAnchored: boolean;
+  /** Last observed currentTime, and the frame clock when it changed. */
+  audioClock: number;
+  audioClockAt: number;
   lastBeat: number;
   combo: number;
   held: Set<string>;
@@ -162,6 +165,8 @@ export default function Home() {
     beatEpoch: 0,
     audioOrigin: 0,
     audioAnchored: false,
+    audioClock: 0,
+    audioClockAt: 0,
     lastBeat: -1,
     combo: 0,
     held: new Set(),
@@ -399,11 +404,19 @@ export default function Home() {
     let disposed = false;
     const calmQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
 
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
+    // A phone GPU spends more on the shadow pass than the shadow is worth, and
+    // rendering above 1x on top of that is what makes the dance stutter.
+    const lightweight =
+      window.matchMedia('(pointer: coarse)').matches ||
+      window.matchMedia('(max-width: 900px)').matches;
+
+    renderer.setPixelRatio(
+      Math.min(window.devicePixelRatio, lightweight ? 1 : MAX_PIXEL_RATIO),
+    );
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.12;
-    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.enabled = !lightweight;
     renderer.shadowMap.type = THREE.PCFShadowMap;
 
     const scene = new THREE.Scene();
@@ -420,7 +433,7 @@ export default function Home() {
 
     const key = new THREE.DirectionalLight(0xffedf9, 4.7);
     key.position.set(2.8, 4.5, 4);
-    key.castShadow = true;
+    key.castShadow = !lightweight;
     key.shadow.mapSize.set(1024, 1024);
     key.shadow.camera.top = 3;
     key.shadow.camera.bottom = -3;
@@ -516,11 +529,21 @@ export default function Home() {
       entry.action.timeScale = entry.clip.duration / (entry.beats * beatSec);
     };
 
-    /** Put every quantised clip exactly where the beat grid says it should be. */
-    const scrubToGrid = (beatsElapsed: number) => {
+    /**
+     * Steer each quantised clip onto the beat grid. The clip still advances on
+     * its own, and this only corrects the error — snapping the playhead
+     * straight onto the target made every clock wobble show up as a stutter.
+     */
+    const lockPhase = (beatsElapsed: number) => {
       for (const entry of quantized) {
+        const dur = entry.clip.duration;
         const local = ((beatsElapsed % entry.beats) + entry.beats) % entry.beats;
-        entry.action.time = (local / entry.beats) * entry.clip.duration;
+        const target = (local / entry.beats) * dur;
+        let diff = target - entry.action.time;
+        if (diff > dur / 2) diff -= dur;
+        else if (diff < -dur / 2) diff += dur;
+        // Big gaps (a seek, a tempo change) jump; ordinary drift eases in.
+        entry.action.time += Math.abs(diff) > dur * 0.25 ? diff : diff * 0.14;
       }
     };
 
@@ -740,7 +763,9 @@ export default function Home() {
       if (!rect.width || !rect.height) return;
       camera.aspect = rect.width / rect.height;
       camera.updateProjectionMatrix();
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
+      renderer.setPixelRatio(
+        Math.min(window.devicePixelRatio, lightweight ? 1 : MAX_PIXEL_RATIO),
+      );
       renderer.setSize(rect.width, rect.height, false);
       fitCamera(rect);
     };
@@ -849,7 +874,7 @@ export default function Home() {
           const sorted = [...engine.intervals].sort((a, b) => a - b);
           const median = sorted[Math.floor(sorted.length / 2)];
           const bpm = Math.round(60 / median);
-          if (bpm >= 70 && bpm <= 180 && Math.abs(bpm - engine.detectedBpm) >= 1) {
+          if (bpm >= 70 && bpm <= 180 && Math.abs(bpm - engine.detectedBpm) >= 3) {
             engine.detectedBpm = bpm;
             setBeatVars();
             engine.retime?.(60 / bpm);
@@ -895,10 +920,24 @@ export default function Home() {
       const audio = engine.audio;
       const live = Boolean(engine.analyser && audio && !audio.paused);
       const beatSec = 60 / (engine.detectedBpm || DEFAULT_BPM);
+
+      // Phones report currentTime in coarse steps, so read it as a clock that
+      // is corrected on each update rather than sampled raw every frame.
+      let audioNow = engine.audioClock;
+      if (live && audio) {
+        if (audio.currentTime !== engine.audioClock) {
+          engine.audioClock = audio.currentTime;
+          engine.audioClockAt = frameNow;
+        }
+        audioNow =
+          engine.audioClock +
+          Math.min(0.5, (frameNow - engine.audioClockAt) / 1000);
+      }
+
       // While a track plays the grid comes from the audio's own clock, so a
       // stutter, a tab switch or a seek can never slide the dance off the beat.
       const beats = live
-        ? (audio!.currentTime - engine.audioOrigin) / beatSec
+        ? (audioNow - engine.audioOrigin) / beatSec
         : (frameNow - engine.beatEpoch) / 1000 / beatSec;
       const whole = Math.floor(beats);
       const phase = beats - whole;
@@ -932,12 +971,10 @@ export default function Home() {
       const camYaw = yaw;
       const camPitch = THREE.MathUtils.clamp(pitch, -0.35, 0.6);
       const cosPitch = Math.cos(camPitch);
-      // Snap the camera to a coarse lattice — the PS1 vertex judder, cheaply.
-      const snap = 96;
       camera.position.set(
-        Math.round(Math.sin(camYaw) * cosPitch * distance * snap) / snap,
-        Math.round((focus.y + Math.sin(camPitch) * distance) * snap) / snap,
-        Math.round(Math.cos(camYaw) * cosPitch * distance * snap) / snap,
+        Math.sin(camYaw) * cosPitch * distance,
+        focus.y + Math.sin(camPitch) * distance,
+        Math.cos(camYaw) * cosPitch * distance,
       );
       camera.lookAt(focus);
 
@@ -945,10 +982,10 @@ export default function Home() {
         ballMixer?.update(delta);
 
         if (live) {
-          // Her feet land on the beat because the playhead is the beat.
-          scrubToGrid(beats);
-          mixer?.update(0);
-          floorMixer?.update(0);
+          // Advance normally, then steer the playhead onto the beat.
+          mixer?.update(delta);
+          floorMixer?.update(delta);
+          lockPhase(beats);
         } else {
           // Nothing playing: she waits on the opening pose and just breathes,
           // while the floor keeps ticking over underneath her.
